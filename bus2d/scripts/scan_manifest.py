@@ -11,17 +11,15 @@ import csv
 import hashlib
 import json
 import os
-import sys
 import tarfile
 from collections import Counter, defaultdict
-from pathlib import Path
 
 import nibabel as nib
 import numpy as np
-import SimpleITK as sitk
 import yaml
 
 # ── helpers ──────────────────────────────────────────────────────────
+
 
 def resolve_env(s, env=None):
     """Expand ${var} references in a string using env dict."""
@@ -43,6 +41,7 @@ def load_config(path):
     with open(path) as f:
         cfg = yaml.safe_load(f)
     env = {"data_root": cfg["data_root"], "output_root": cfg["output_root"]}
+
     # Recursively resolve
     def _resolve(obj):
         if isinstance(obj, str):
@@ -52,11 +51,12 @@ def load_config(path):
         if isinstance(obj, list):
             return [_resolve(v) for v in obj]
         return obj
+
     return _resolve(cfg)
 
 
 def birads_to_class_id(birads_str, class_map):
-    """Map a BI-RADS grade string to a class id.  Returns None if unknown."""
+    """Map a BI-RADS grade string to a class id. Returns None if unknown."""
     grade = str(birads_str).strip().lower()
     for cid, (grade_val, _) in class_map.items():
         if grade_val.lower() == grade:
@@ -66,8 +66,9 @@ def birads_to_class_id(birads_str, class_map):
 
 # ── ABUS scanner ────────────────────────────────────────────────────
 
+
 def scan_abus(cfg):
-    """Scan TDSC-ABUS dataset.  Returns list of volume dicts."""
+    """Scan TDSC-ABUS dataset. Returns list of volume dicts."""
     abus_cfg = cfg["datasets"]["abus"]
     base = abus_cfg["base"]
     label_map = cfg["abus_label_map"]
@@ -86,12 +87,8 @@ def scan_abus(cfg):
                 cid = int(row["case_id"])
                 labels[cid] = {
                     "label": row["label"],
-                    "data_path": os.path.join(
-                        split_dir, row["data_path"].replace("\\", "/")
-                    ),
-                    "mask_path": os.path.join(
-                        split_dir, row["mask_path"].replace("\\", "/")
-                    ),
+                    "data_path": os.path.join(split_dir, row["data_path"].replace("\\", "/")),
+                    "mask_path": os.path.join(split_dir, row["mask_path"].replace("\\", "/")),
                 }
 
         # Read bounding boxes
@@ -126,33 +123,40 @@ def scan_abus(cfg):
             y_min = int(bbx["cy"] - bbx["ly"] / 2)
             y_max = int(bbx["cy"] + bbx["ly"] / 2)
 
-            volumes.append({
-                "volume_id": f"abus_{cid:03d}",
-                "dataset": "abus",
-                "data_path": info["data_path"],
-                "mask_path": info["mask_path"],
-                "label_tar_path": None,
-                "spacing_mm": abus_cfg["spacing_mm"],
-                "original_split": split.lower(),
-                "lesions": [
-                    {
-                        "lesion_id": 1,
-                        "birads": birads,
-                        "class_id": cls_id,
-                        "bbox_voxel": {
-                            "cx": bbx["cx"], "cy": bbx["cy"], "cz": bbx["cz"],
-                            "lx": bbx["lx"], "ly": bbx["ly"], "lz": bbx["lz"],
-                        },
-                        "y_min": y_min,
-                        "y_max": y_max,
-                    }
-                ],
-            })
+            volumes.append(
+                {
+                    "volume_id": f"abus_{cid:03d}",
+                    "dataset": "abus",
+                    "data_path": info["data_path"],
+                    "mask_path": info["mask_path"],
+                    "label_tar_path": None,
+                    "spacing_mm": abus_cfg["spacing_mm"],
+                    "original_split": split.lower(),
+                    "lesions": [
+                        {
+                            "lesion_id": 1,
+                            "birads": birads,
+                            "class_id": cls_id,
+                            "bbox_voxel": {
+                                "cx": bbx["cx"],
+                                "cy": bbx["cy"],
+                                "cz": bbx["cz"],
+                                "lx": bbx["lx"],
+                                "ly": bbx["ly"],
+                                "lz": bbx["lz"],
+                            },
+                            "y_min": y_min,
+                            "y_max": y_max,
+                        }
+                    ],
+                }
+            )
 
     return volumes
 
 
 # ── Duying helpers ──────────────────────────────────────────────────
+
 
 def parse_label_tar(tar_path):
     """Extract annotation JSON from a Label.tar file."""
@@ -164,8 +168,7 @@ def parse_label_tar(tar_path):
 
 
 def parse_duying_annotation(json_data):
-    """
-    Parse Duying Label.tar JSON → list of lesions.
+    """Parse Duying Label.tar JSON → list of lesions.
 
     Each lesion has: lesion_id, coronal_bboxes, y_extent_voxel.
 
@@ -180,9 +183,9 @@ def parse_duying_annotation(json_data):
     """
     file_info = json_data.get("FileInfo", {})
     spacing = file_info.get("Spacing", [1.0, 3.0, 1.0])
-    width = file_info.get("Width", 0)    # X dim
+    width = file_info.get("Width", 0)  # X dim
     height = file_info.get("Height", 0)  # Y dim (3mm)
-    depth = file_info.get("Depth", 0)    # Z dim
+    depth = file_info.get("Depth", 0)  # Z dim
 
     models = json_data.get("Models", {})
     bbox_list = models.get("BoundingBoxLabelModel") or []
@@ -213,13 +216,15 @@ def parse_duying_annotation(json_data):
                 x_max_px = max(p1[0], p2[0])
                 z_min_px = min(p1[2], p2[2])
                 z_max_px = max(p1[2], p2[2])
-                coronal_bbs.append({
-                    "y_voxel": fc,
-                    "x_min": x_min_px,  # already in 1mm = pixel
-                    "x_max": x_max_px,
-                    "z_min": z_min_px,
-                    "z_max": z_max_px,
-                })
+                coronal_bbs.append(
+                    {
+                        "y_voxel": fc,
+                        "x_min": x_min_px,  # already in 1mm = pixel
+                        "x_max": x_max_px,
+                        "z_min": z_min_px,
+                        "z_max": z_max_px,
+                    }
+                )
                 y_voxels.add(fc)
 
             elif st == 0:  # sagittal — gives Y extent
@@ -256,13 +261,15 @@ def parse_duying_annotation(json_data):
                 elif st == 2:  # axial
                     x_vals.extend([p1[0], p2[0]])
             if x_vals and z_vals:
-                coronal_bbs.append({
-                    "y_voxel": (y_min + y_max) // 2,
-                    "x_min": min(x_vals),
-                    "x_max": max(x_vals),
-                    "z_min": min(z_vals),
-                    "z_max": max(z_vals),
-                })
+                coronal_bbs.append(
+                    {
+                        "y_voxel": (y_min + y_max) // 2,
+                        "x_min": min(x_vals),
+                        "x_max": max(x_vals),
+                        "z_min": min(z_vals),
+                        "z_max": max(z_vals),
+                    }
+                )
 
         if not coronal_bbs:
             continue
@@ -274,22 +281,23 @@ def parse_duying_annotation(json_data):
         cz = (rep["z_min"] + rep["z_max"]) / 2
         lz = rep["z_max"] - rep["z_min"]
 
-        lesions.append({
-            "lesion_id": label,
-            "y_min": y_min,
-            "y_max": y_max,
-            "coronal_bbox_px": {"cx": cx, "cz": cz, "lx": lx, "lz": lz},
-            "all_coronal_bbs": coronal_bbs,
-        })
+        lesions.append(
+            {
+                "lesion_id": label,
+                "y_min": y_min,
+                "y_max": y_max,
+                "coronal_bbox_px": {"cx": cx, "cz": cz, "lx": lx, "lz": lz},
+                "all_coronal_bbs": coronal_bbs,
+            }
+        )
 
     return lesions, (width, height, depth), spacing
 
 
 def parse_birads_excel(excel_path):
-    """
-    Parse the BI-RADS classification Excel.
+    """Parse the BI-RADS classification Excel.
 
-    Returns: dict  nii_filename -> list of {lesion_color, birads}
+    Returns: dict nii_filename -> list of {lesion_color, birads}
     """
     import openpyxl
 
@@ -312,20 +320,21 @@ def parse_birads_excel(excel_path):
                 lesion_label = int(color_str.split("-")[0])
             except (ValueError, IndexError):
                 lesion_label = len(result[current_file]) + 1
-            result[current_file].append({
-                "lesion_label": lesion_label,
-                "birads": str(birads).strip().lower(),
-            })
+            result[current_file].append(
+                {
+                    "lesion_label": lesion_label,
+                    "birads": str(birads).strip().lower(),
+                }
+            )
     wb.close()
     return result
 
 
 # ── Duying scanner ──────────────────────────────────────────────────
 
+
 def find_nii_tar_pairs(directory):
-    """
-    Recursively find all (.nii, _nii_Label.tar) pairs under a directory.
-    Returns list of (nii_path, tar_path).
+    """Recursively find all (.nii, _nii_Label.tar) pairs under a directory. Returns list of (nii_path, tar_path).
     """
     pairs = []
     for root, dirs, files in os.walk(directory):
@@ -340,9 +349,8 @@ def find_nii_tar_pairs(directory):
 
 
 def volume_fingerprint(nii_path, max_samples=100000):
-    """
-    Compute a fingerprint for deduplication: (shape_tuple, mean, std, p5, p95).
-    Uses nibabel to read only the header + a sample of data.
+    """Compute a fingerprint for deduplication: (shape_tuple, mean, std, p5, p95). Uses nibabel to read only the header
+    + a sample of data.
     """
     try:
         img = nib.load(nii_path)
@@ -480,14 +488,16 @@ def scan_duying(cfg):
                 skipped_no_birads += 1
                 continue
 
-            vol_lesions.append({
-                "lesion_id": lid,
-                "birads": birads,
-                "class_id": cls_id,
-                "y_min": les["y_min"],
-                "y_max": les["y_max"],
-                "coronal_bbox_px": les["coronal_bbox_px"],
-            })
+            vol_lesions.append(
+                {
+                    "lesion_id": lid,
+                    "birads": birads,
+                    "class_id": cls_id,
+                    "y_min": les["y_min"],
+                    "y_max": les["y_max"],
+                    "coronal_bbox_px": les["coronal_bbox_px"],
+                }
+            )
 
         if not vol_lesions:
             continue
@@ -495,16 +505,18 @@ def scan_duying(cfg):
         # Generate a stable volume ID from file path
         vol_id = "duying_" + hashlib.md5(nii_path.encode()).hexdigest()[:8]
 
-        volumes.append({
-            "volume_id": vol_id,
-            "dataset": "duying",
-            "data_path": nii_path,
-            "mask_path": None,
-            "label_tar_path": tar_path,
-            "spacing_mm": spacing,
-            "shape": [w, h, d],
-            "lesions": vol_lesions,
-        })
+        volumes.append(
+            {
+                "volume_id": vol_id,
+                "dataset": "duying",
+                "data_path": nii_path,
+                "mask_path": None,
+                "label_tar_path": tar_path,
+                "spacing_mm": spacing,
+                "shape": [w, h, d],
+                "lesions": vol_lesions,
+            }
+        )
 
     print(f"  Duying volumes accepted: {len(volumes)}")
     print(f"  Skipped (no annotation): {skipped_no_annot}")
@@ -514,6 +526,7 @@ def scan_duying(cfg):
 
 
 # ── main ────────────────────────────────────────────────────────────
+
 
 def main():
     parser = argparse.ArgumentParser(description="Scan datasets and build manifest")
@@ -580,9 +593,7 @@ def main():
         "class_map": {int(k): v for k, v in class_map.items()},
         "total_volumes": len(all_vols),
         "total_lesions": sum(class_counts.values()),
-        "class_distribution": {
-            class_map[cid][1]: cnt for cid, cnt in class_counts.items()
-        },
+        "class_distribution": {class_map[cid][1]: cnt for cid, cnt in class_counts.items()},
     }
     with open(out_path, "w") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)

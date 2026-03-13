@@ -36,8 +36,8 @@ echo "Dataset: ${DATASET_YAML}"
 echo ""
 
 python "${SCRIPT_DIR}/scripts/train.py" \
-    --config "${CONFIG}" \
-    --dataset-yaml "${DATASET_YAML}"
+  --config "${CONFIG}" \
+  --dataset-yaml "${DATASET_YAML}"
 
 echo ""
 echo "Training finished at $(date)"
