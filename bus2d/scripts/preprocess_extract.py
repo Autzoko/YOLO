@@ -19,9 +19,6 @@ Output structure (YOLO format):
 import argparse
 import json
 import os
-import random
-import sys
-from pathlib import Path
 
 import cv2
 import nibabel as nib
@@ -31,6 +28,7 @@ import yaml
 from scipy.ndimage import zoom
 
 # ── config loading (shared with scan_manifest) ─────────────────────
+
 
 def resolve_env(s, env=None):
     if env is None:
@@ -50,6 +48,7 @@ def load_config(path):
     with open(path) as f:
         cfg = yaml.safe_load(f)
     env = {"data_root": cfg["data_root"], "output_root": cfg["output_root"]}
+
     def _resolve(obj):
         if isinstance(obj, str):
             return resolve_env(obj, env)
@@ -58,13 +57,15 @@ def load_config(path):
         if isinstance(obj, list):
             return [_resolve(v) for v in obj]
         return obj
+
     return _resolve(cfg)
 
 
 # ── volume loading ──────────────────────────────────────────────────
 
+
 def load_abus_volume(data_path):
-    """Load ABUS NRRD volume.  Returns 3D numpy array (X, Y, Z) float32."""
+    """Load ABUS NRRD volume. Returns 3D numpy array (X, Y, Z) float32."""
     img = sitk.ReadImage(data_path)
     arr = sitk.GetArrayFromImage(img)  # (Z?, Y?, X?) — see note below
     # SimpleITK returns (k, j, i) for image axes (i, j, k).
@@ -75,13 +76,13 @@ def load_abus_volume(data_path):
 
 
 def load_abus_mask(mask_path):
-    """Load ABUS NRRD mask.  Returns 3D bool/uint8 array."""
+    """Load ABUS NRRD mask. Returns 3D bool/uint8 array."""
     img = sitk.ReadImage(mask_path)
     return sitk.GetArrayFromImage(img).astype(np.uint8)
 
 
 def load_duying_volume(nii_path):
-    """Load Duying NIfTI volume.  Returns 3D numpy array and spacing."""
+    """Load Duying NIfTI volume. Returns 3D numpy array and spacing."""
     img = nib.load(nii_path)
     arr = np.asarray(img.dataobj, dtype=np.float32)
     pixdim = img.header["pixdim"]
@@ -90,6 +91,7 @@ def load_duying_volume(nii_path):
 
 
 # ── preprocessing ───────────────────────────────────────────────────
+
 
 def resample_y(volume, src_spacing_y, tgt_spacing_y):
     """Resample volume along axis 1 (Y) from src to tgt spacing."""
@@ -113,10 +115,9 @@ def normalize_volume(volume, lo_pct=1, hi_pct=99):
 
 # ── bbox helpers ────────────────────────────────────────────────────
 
+
 def bbox_from_mask_slice(mask_2d):
-    """
-    Compute bounding box from a 2D binary mask.
-    Returns (cx, cy, w, h) in pixel coords, or None if empty.
+    """Compute bounding box from a 2D binary mask. Returns (cx, cy, w, h) in pixel coords, or None if empty.
     """
     ys, xs = np.where(mask_2d > 0)
     if len(xs) == 0:
@@ -132,13 +133,14 @@ def bbox_from_mask_slice(mask_2d):
 
 def yolo_label_line(class_id, cx, cy, w, h, img_w, img_h):
     """Format a YOLO label line: class cx cy w h (all normalized)."""
-    return f"{class_id} {cx/img_w:.6f} {cy/img_h:.6f} {w/img_w:.6f} {h/img_h:.6f}"
+    return f"{class_id} {cx / img_w:.6f} {cy / img_h:.6f} {w / img_w:.6f} {h / img_h:.6f}"
 
 
 # ── augmentation ────────────────────────────────────────────────────
 
+
 def augment_slice(img, aug_cfg, rng):
-    """Apply augmentation to a single 2D uint8 image.  Returns augmented copy."""
+    """Apply augmentation to a single 2D uint8 image. Returns augmented copy."""
     out = img.copy()
 
     # Horizontal flip
@@ -163,12 +165,11 @@ def augment_slice(img, aug_cfg, rng):
 
 # ── slice extraction ────────────────────────────────────────────────
 
-def extract_slices_abus(vol_info, volume, mask, cfg, split, rng):
-    """
-    Extract coronal slices from an ABUS volume.
 
-    volume / mask: 3D arrays with Y = axis 1
-    Returns list of (filename, image_2d, label_lines, metadata).
+def extract_slices_abus(vol_info, volume, mask, cfg, split, rng):
+    """Extract coronal slices from an ABUS volume.
+
+    volume / mask: 3D arrays with Y = axis 1 Returns list of (filename, image_2d, label_lines, metadata).
     """
     se_cfg = cfg["slice_extraction"]
     aug_cfg = cfg["augmentation"]
@@ -211,9 +212,7 @@ def extract_slices_abus(vol_info, volume, mask, cfg, split, rng):
             if bb is not None:
                 cx, cy, w, h = bb
                 img_h, img_w = slice_2d.shape
-                label_lines.append(
-                    yolo_label_line(les["class_id"], cx, cy, w, h, img_w, img_h)
-                )
+                label_lines.append(yolo_label_line(les["class_id"], cx, cy, w, h, img_w, img_h))
 
             # Normalize to uint8 (volume already normalized)
             img = slice_2d if slice_2d.dtype == np.uint8 else slice_2d.astype(np.uint8)
@@ -269,12 +268,10 @@ def extract_slices_abus(vol_info, volume, mask, cfg, split, rng):
 
 
 def extract_slices_duying(vol_info, volume, cfg, split, rng):
-    """
-    Extract coronal slices from a Duying volume (already resampled to 1mm isotropic).
+    """Extract coronal slices from a Duying volume (already resampled to 1mm isotropic).
 
-    volume: 3D array (X, Y_resampled, Z)
-    Lesion y_min/y_max from manifest are in original 3mm voxel coords.
-    After resampling by factor 3, y_voxel_1mm = y_voxel_3mm * 3.
+    volume: 3D array (X, Y_resampled, Z) Lesion y_min/y_max from manifest are in original 3mm voxel coords. After
+    resampling by factor 3, y_voxel_1mm = y_voxel_3mm * 3.
     """
     se_cfg = cfg["slice_extraction"]
     aug_cfg = cfg["augmentation"]
@@ -337,9 +334,7 @@ def extract_slices_duying(vol_info, volume, cfg, split, rng):
                 yolo_cy = max(0, min(1, yolo_cy))
                 yolo_w = max(0, min(1, yolo_w))
                 yolo_h = max(0, min(1, yolo_h))
-                label_lines.append(
-                    f"{les['class_id']} {yolo_cx:.6f} {yolo_cy:.6f} {yolo_w:.6f} {yolo_h:.6f}"
-                )
+                label_lines.append(f"{les['class_id']} {yolo_cx:.6f} {yolo_cy:.6f} {yolo_w:.6f} {yolo_h:.6f}")
 
             img = slice_2d if slice_2d.dtype == np.uint8 else slice_2d.astype(np.uint8)
             if split == "train":
@@ -392,11 +387,10 @@ def extract_slices_duying(vol_info, volume, cfg, split, rng):
 
 # ── train/val split ─────────────────────────────────────────────────
 
+
 def volume_level_split(volumes, cfg):
-    """
-    Split volumes into train/val at the volume level.
-    Stratified by (dataset, primary_class).
-    Returns (train_vols, val_vols).
+    """Split volumes into train/val at the volume level. Stratified by (dataset, primary_class). Returns (train_vols,
+    val_vols).
     """
     from collections import defaultdict
 
@@ -428,8 +422,9 @@ def volume_level_split(volumes, cfg):
 
 # ── main processing loop ───────────────────────────────────────────
 
+
 def process_volumes(volumes, split, cfg, output_root, rng):
-    """Process all volumes for a given split.  Returns (n_slices, class_counts)."""
+    """Process all volumes for a given split. Returns (n_slices, class_counts)."""
     from collections import Counter
 
     img_dir = os.path.join(output_root, "images", split)
@@ -446,24 +441,20 @@ def process_volumes(volumes, split, cfg, output_root, rng):
     for i, vol in enumerate(volumes):
         vid = vol["volume_id"]
         ds = vol["dataset"]
-        print(f"  [{split}] {i+1}/{len(volumes)}: {vid} ({ds})")
+        print(f"  [{split}] {i + 1}/{len(volumes)}: {vid} ({ds})")
 
         try:
             if ds == "abus":
                 volume = load_abus_volume(vol["data_path"])
                 mask = load_abus_mask(vol["mask_path"])
-                volume = normalize_volume(
-                    volume, preproc["clip_percentiles"][0], preproc["clip_percentiles"][1]
-                )
+                volume = normalize_volume(volume, preproc["clip_percentiles"][0], preproc["clip_percentiles"][1])
                 slices = extract_slices_abus(vol, volume, mask, cfg, split, rng)
             else:  # duying
                 raw_vol, spacing = load_duying_volume(vol["data_path"])
                 # Resample Y axis
                 raw_vol = resample_y(raw_vol, spacing[1], preproc["resample_y_mm"])
                 # Normalize
-                raw_vol = normalize_volume(
-                    raw_vol, preproc["clip_percentiles"][0], preproc["clip_percentiles"][1]
-                )
+                raw_vol = normalize_volume(raw_vol, preproc["clip_percentiles"][0], preproc["clip_percentiles"][1])
                 slices = extract_slices_duying(vol, raw_vol, cfg, split, rng)
 
         except Exception as e:
