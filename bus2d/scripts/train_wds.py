@@ -235,6 +235,20 @@ class WDSDetectionTrainer(DetectionTrainer):
         self.shards_dir = shards_dir
         super().__init__(*args, **kwargs)
 
+    def get_dataset(self):
+        """
+        Override to skip file-system validation.
+        Return a minimal data dict that satisfies YOLO's expectations.
+        """
+        # Read the dataset YAML for class names only
+        with open(self.args.data) as f:
+            data = yaml.safe_load(f)
+        # Ensure required keys exist
+        data.setdefault("nc", len(data.get("names", {})))
+        data.setdefault("train", "train")
+        data.setdefault("val", "val")
+        return data
+
     def build_dataset(self, img_path, mode="train", batch=None):
         """Not used — we override get_dataloader directly."""
         return None
