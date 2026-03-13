@@ -245,6 +245,7 @@ class WDSDetectionTrainer(DetectionTrainer):
             data = yaml.safe_load(f)
         # Ensure required keys exist
         data.setdefault("nc", len(data.get("names", {})))
+        data.setdefault("channels", 3)
         data.setdefault("train", "train")
         data.setdefault("val", "val")
         return data
