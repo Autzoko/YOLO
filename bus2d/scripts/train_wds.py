@@ -254,6 +254,14 @@ class WDSDetectionTrainer(DetectionTrainer):
         """Not used — we override get_dataloader directly."""
         return None
 
+    def plot_training_labels(self):
+        """Skip — label stats not available from streaming shards."""
+        pass
+
+    def plot_training_samples(self, batch, ni):
+        """Skip — avoid issues with streaming batch format."""
+        pass
+
     def get_dataloader(self, dataset_path, batch_size=16, rank=0, mode="train"):
         """Override to return WebDataset dataloader."""
         shuffle = mode == "train"
