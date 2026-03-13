@@ -326,12 +326,8 @@ def main():
     print(f"Shards: {args.shards_dir}")
     print(f"Epochs: {epochs}, Batch: {batch}, Device: {device}")
 
-    model = YOLO(model_path)
-
-    # Use custom trainer
-    model.trainer = None  # Reset
-
-    train_args = dict(
+    overrides = dict(
+        model=model_path,
         data=args.dataset_yaml,
         imgsz=tcfg["imgsz"],
         batch=batch,
@@ -344,6 +340,7 @@ def main():
         exist_ok=True,
         save=True,
         val=True,
+        resume=args.resume or False,
         fliplr=0.5,
         flipud=0.0,
         mosaic=0.0,         # Disable mosaic — not compatible with streaming
@@ -352,28 +349,14 @@ def main():
         hsv_h=0.015,
         hsv_s=0.4,
         hsv_v=0.3,
+        mode="train",
+        task="detect",
     )
-
-    # Override the trainer class
-    model.trainer_class = lambda *a, **kw: WDSDetectionTrainer(
-        *a, shards_dir=args.shards_dir, **kw
-    )
-
-    # We need to directly instantiate and run the trainer
-    # because model.train() doesn't easily support custom trainer classes
-    overrides = {**train_args}
-    overrides["mode"] = "train"
-    overrides["task"] = "detect"
 
     trainer = WDSDetectionTrainer(
-        cfg=overrides,
         overrides=overrides,
         shards_dir=args.shards_dir,
     )
-    trainer.model = trainer.get_model(weights=model_path if not args.resume else None)
-    if args.resume:
-        trainer.resume = args.resume
-
     trainer.train()
 
     print("\nTraining complete!")
