@@ -2,9 +2,10 @@
 # 2D breast lesion detection on coronal ABUS slices
 # 5-class BI-RADS grading
 
-# ── Paths (adjust for HPC) ──────────────────────────────────────────
-# On HPC, set BUS2D_ROOT env var or edit path below
-path: /scratch/bus2d/slices   # dataset root — contains images/ and labels/
+# ── Paths ───────────────────────────────────────────────────────────
+# At job start, shards are unpacked to $TMPDIR/bus2d_slices/
+# The SLURM script sets this path via sed before training.
+path: /tmp/bus2d_slices
 train: images/train
 val: images/val
 
