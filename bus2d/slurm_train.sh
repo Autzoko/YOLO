@@ -14,10 +14,11 @@
 module purge
 module load cuda/11.8.0
 
+source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate /scratch/ll5582/envs/yolo
 
 # ── Paths ───────────────────────────────────────────────────────────
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="/scratch/ll5582/Projects/YOLO/bus2d"
 SHARDS_DIR="/scratch/ll5582/Data/Ultrasound/YOLO/shards"
 CONFIG="${SCRIPT_DIR}/config.yaml"
 DATASET_YAML="${SCRIPT_DIR}/bus2d_dataset.yaml"
