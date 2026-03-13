@@ -142,6 +142,9 @@ def decode_sample(sample, imgsz=640):
     # im_file for logging
     im_file = sample.get("__key__", "unknown")
 
+    # ratio_pad: (scale, (left_pad, top_pad)) — used by validator to map preds back
+    ratio_pad = (scale, (left, top))
+
     return {
         "img": img_tensor,
         "cls": cls_tensor,
@@ -150,6 +153,7 @@ def decode_sample(sample, imgsz=640):
         "im_file": im_file,
         "ori_shape": (ori_h, ori_w),
         "resized_shape": (imgsz, imgsz),
+        "ratio_pad": ratio_pad,
     }
 
 
@@ -165,6 +169,7 @@ def yolo_collate_fn(batch):
     new_batch["im_file"] = [b["im_file"] for b in batch]
     new_batch["ori_shape"] = [b["ori_shape"] for b in batch]
     new_batch["resized_shape"] = [b["resized_shape"] for b in batch]
+    new_batch["ratio_pad"] = [b["ratio_pad"] for b in batch]
 
     # Concatenate annotations with batch_idx offset
     all_cls = []
