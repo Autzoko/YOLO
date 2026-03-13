@@ -1,0 +1,18 @@
+# BUS-2D YOLO Dataset Configuration
+# 2D breast lesion detection on coronal ABUS slices
+# 5-class BI-RADS grading
+
+# ── Paths (adjust for HPC) ──────────────────────────────────────────
+# On HPC, set BUS2D_ROOT env var or edit path below
+path: /scratch/bus2d/slices   # dataset root — contains images/ and labels/
+train: images/train
+val: images/val
+
+# ── Classes ─────────────────────────────────────────────────────────
+nc: 5
+names:
+  0: birads2
+  1: birads3
+  2: birads4a
+  3: birads4b
+  4: birads4c
