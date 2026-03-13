@@ -188,9 +188,9 @@ def extract_slices_abus(vol_info, volume, mask, cfg, split, rng):
         mid_start = y_min + int(y_span / 3)
         mid_end = y_min + int(2 * y_span / 3)
 
-        # Clamp
+        # Clamp to axis 0 (coronal sweep direction, dim=330)
         mid_start = max(mid_start, 0)
-        mid_end = min(mid_end, volume.shape[1] - 1)
+        mid_end = min(mid_end, volume.shape[0] - 1)
 
         n_slices = mid_end - mid_start + 1
         n_slices = max(se_cfg["min_slices"], min(se_cfg["max_slices"], n_slices))
@@ -201,9 +201,9 @@ def extract_slices_abus(vol_info, volume, mask, cfg, split, rng):
             indices = list(range(mid_start, mid_end + 1))
 
         for y_idx in indices:
-            # Coronal slice: fix Y, get (dim0, dim2) image
-            slice_2d = volume[:, y_idx, :]
-            mask_2d = mask[:, y_idx, :]
+            # Coronal slice: fix axis 0 (coronal sweep), get (axial, lateral) image
+            slice_2d = volume[y_idx, :, :]
+            mask_2d = mask[y_idx, :, :]
 
             # Compute bbox from mask on this slice
             bb = bbox_from_mask_slice(mask_2d)
@@ -237,12 +237,12 @@ def extract_slices_abus(vol_info, volume, mask, cfg, split, rng):
     n_neg_target = int(n_pos * se_cfg["negative_ratio"])
     buffer = se_cfg["negative_buffer"]
 
-    # Find valid negative Y indices
+    # Find valid negative coronal indices (axis 0)
     all_y = set()
     for y_min, y_max in occupied_y_ranges:
-        for y in range(max(0, y_min - buffer), min(volume.shape[1], y_max + buffer + 1)):
+        for y in range(max(0, y_min - buffer), min(volume.shape[0], y_max + buffer + 1)):
             all_y.add(y)
-    valid_neg_y = [y for y in range(volume.shape[1]) if y not in all_y]
+    valid_neg_y = [y for y in range(volume.shape[0]) if y not in all_y]
 
     if valid_neg_y and n_neg_target > 0:
         neg_indices = rng.choice(
@@ -251,7 +251,7 @@ def extract_slices_abus(vol_info, volume, mask, cfg, split, rng):
             replace=len(valid_neg_y) < n_neg_target,
         )
         for y_idx in neg_indices:
-            slice_2d = volume[:, y_idx, :]
+            slice_2d = volume[y_idx, :, :]
             img = slice_2d if slice_2d.dtype == np.uint8 else slice_2d.astype(np.uint8)
             if split == "train":
                 img = augment_slice(img, aug_cfg, rng)

@@ -122,9 +122,10 @@ def scan_abus(cfg):
                 print(f"  [WARN] ABUS case {cid}: no bbox, skipping")
                 continue
 
-            # Y-extent in voxel coords (isotropic 1mm)
-            y_min = int(bbx["cy"] - bbx["ly"] / 2)
-            y_max = int(bbx["cy"] + bbx["ly"] / 2)
+            # Coronal extent in voxel coords (axis 0 = coronal sweep)
+            # bbx x-axis maps to array axis 0 (330 dim, coronal direction)
+            y_min = int(bbx["cx"] - bbx["lx"] / 2)
+            y_max = int(bbx["cx"] + bbx["lx"] / 2)
 
             volumes.append({
                 "volume_id": f"abus_{cid:03d}",
