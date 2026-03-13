@@ -135,7 +135,7 @@ def decode_sample(sample, imgsz=640):
                 classes.append(cls)
 
     n = len(classes)
-    cls_tensor = torch.tensor(classes, dtype=torch.float32) if n > 0 else torch.zeros(0, dtype=torch.float32)
+    cls_tensor = torch.tensor(classes, dtype=torch.float32).unsqueeze(1) if n > 0 else torch.zeros((0, 1), dtype=torch.float32)
     bbox_tensor = torch.tensor(bboxes, dtype=torch.float32) if n > 0 else torch.zeros((0, 4), dtype=torch.float32)
     batch_idx = torch.zeros(n, dtype=torch.long)
 
