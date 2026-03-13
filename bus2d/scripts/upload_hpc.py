@@ -32,6 +32,7 @@ def load_config(path):
     with open(path) as f:
         cfg = yaml.safe_load(f)
     env = {"data_root": cfg["data_root"], "output_root": cfg["output_root"]}
+
     def _resolve(obj):
         if isinstance(obj, str):
             return resolve_env(obj, env)
@@ -40,12 +41,13 @@ def load_config(path):
         if isinstance(obj, list):
             return [_resolve(v) for v in obj]
         return obj
+
     return _resolve(cfg)
 
 
 def rsync_transfer(local_path, remote_dest, flags, dry_run=False):
-    """Run rsync.  If dry_run, append --dry-run flag."""
-    cmd = ["rsync"] + flags.split()
+    """Run rsync. If dry_run, append --dry-run flag."""
+    cmd = ["rsync", *flags.split()]
     if dry_run:
         cmd.append("--dry-run")
     # Ensure trailing slash on local path for directory sync

@@ -16,8 +16,7 @@ import argparse
 import json
 import os
 import sys
-from collections import Counter, defaultdict
-from pathlib import Path
+from collections import defaultdict
 
 import cv2
 import matplotlib
@@ -49,6 +48,7 @@ def load_config(path):
     with open(path) as f:
         cfg = yaml.safe_load(f)
     env = {"data_root": cfg["data_root"], "output_root": cfg["output_root"]}
+
     def _resolve(obj):
         if isinstance(obj, str):
             return resolve_env(obj, env)
@@ -57,6 +57,7 @@ def load_config(path):
         if isinstance(obj, list):
             return [_resolve(v) for v in obj]
         return obj
+
     return _resolve(cfg)
 
 
@@ -133,9 +134,7 @@ def compute_ap(precision, recall):
 
 
 def evaluate_at_iou(gt_all, preds_all, iou_thresh, class_names):
-    """
-    Evaluate detections at a specific IoU threshold.
-    Returns per-class (AP, precision_array, recall_array).
+    """Evaluate detections at a specific IoU threshold. Returns per-class (AP, precision_array, recall_array).
     """
     n_classes = len(class_names)
     results = {}
@@ -351,7 +350,7 @@ def main():
 
     labels = [class_names[i] for i in range(n_classes)] + ["BG"]
     fig, ax = plt.subplots(figsize=(8, 8))
-    im = ax.imshow(conf_matrix, cmap="Blues")
+    ax.imshow(conf_matrix, cmap="Blues")
     ax.set_xticks(range(n_classes + 1))
     ax.set_yticks(range(n_classes + 1))
     ax.set_xticklabels(labels, rotation=45, ha="right")
@@ -398,15 +397,17 @@ def main():
         prec = tp_total / (tp_total + fp_total) if (tp_total + fp_total) > 0 else 0
         rec = tp_total / (tp_total + fn_total) if (tp_total + fn_total) > 0 else 0
         f1 = 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else 0
-        sweep_results.append({
-            "threshold": round(float(thresh), 2),
-            "precision": round(prec, 4),
-            "recall": round(rec, 4),
-            "f1": round(f1, 4),
-        })
+        sweep_results.append(
+            {
+                "threshold": round(float(thresh), 2),
+                "precision": round(prec, 4),
+                "recall": round(rec, 4),
+                "f1": round(f1, 4),
+            }
+        )
 
     # Plot sweep
-    fig, ax = plt.subplots(figsize=(10, 6))
+    _fig, ax = plt.subplots(figsize=(10, 6))
     ts = [r["threshold"] for r in sweep_results]
     ax.plot(ts, [r["precision"] for r in sweep_results], label="Precision", marker="o", ms=3)
     ax.plot(ts, [r["recall"] for r in sweep_results], label="Recall", marker="s", ms=3)
@@ -424,8 +425,10 @@ def main():
 
     # Best F1
     best = max(sweep_results, key=lambda x: x["f1"])
-    print(f"  Best F1={best['f1']:.4f} at conf={best['threshold']:.2f} "
-          f"(P={best['precision']:.4f}, R={best['recall']:.4f})")
+    print(
+        f"  Best F1={best['f1']:.4f} at conf={best['threshold']:.2f} "
+        f"(P={best['precision']:.4f}, R={best['recall']:.4f})"
+    )
 
     # ── Per-volume recall ───────────────────────────────────────────
     print("\nComputing per-volume recall...")
@@ -443,8 +446,7 @@ def main():
 
         vol_stats[vid]["n_gt"] += len(gt_boxes)
         # Count detections at best F1 threshold
-        preds = [(c, conf, b) for c, conf, b in preds_all.get(img_name, [])
-                 if conf >= best["threshold"]]
+        preds = [(c, conf, b) for c, conf, b in preds_all.get(img_name, []) if conf >= best["threshold"]]
         for gt_cls, gt_xyxy in gt_boxes:
             for p_cls, p_conf, p_xyxy in preds:
                 if compute_iou(gt_xyxy, p_xyxy) >= 0.5:
@@ -456,8 +458,9 @@ def main():
     for vid, stats in sorted(vol_stats.items()):
         if stats["n_gt"] > 0:
             recall = stats["n_det"] / stats["n_gt"]
-            vol_recall_data.append({"volume_id": vid, "recall": round(recall, 4),
-                                     "n_gt": stats["n_gt"], "n_det": stats["n_det"]})
+            vol_recall_data.append(
+                {"volume_id": vid, "recall": round(recall, 4), "n_gt": stats["n_gt"], "n_det": stats["n_det"]}
+            )
             if stats["n_det"] == 0:
                 zero_det_vols.append(vid)
 
@@ -490,10 +493,10 @@ def main():
     with open(results_path, "w") as f:
         json.dump(eval_results, f, indent=2)
     print(f"\nAll results saved to: {eval_dir}/")
-    print(f"  eval_results.json  — metrics JSON")
-    print(f"  pr_curves.png      — PR curves")
-    print(f"  confusion_matrix.png — confusion matrix")
-    print(f"  conf_sweep.png     — threshold sweep")
+    print("  eval_results.json  — metrics JSON")
+    print("  pr_curves.png      — PR curves")
+    print("  confusion_matrix.png — confusion matrix")
+    print("  conf_sweep.png     — threshold sweep")
 
 
 if __name__ == "__main__":

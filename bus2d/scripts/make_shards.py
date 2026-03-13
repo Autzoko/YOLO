@@ -9,14 +9,12 @@ Each shard: ~500 MB.  Each sample contains:
 """
 
 import argparse
-import io
 import json
 import math
 import os
 import random
 import tarfile
 from collections import Counter
-from pathlib import Path
 
 import yaml
 
@@ -39,6 +37,7 @@ def load_config(path):
     with open(path) as f:
         cfg = yaml.safe_load(f)
     env = {"data_root": cfg["data_root"], "output_root": cfg["output_root"]}
+
     def _resolve(obj):
         if isinstance(obj, str):
             return resolve_env(obj, env)
@@ -47,13 +46,12 @@ def load_config(path):
         if isinstance(obj, list):
             return [_resolve(v) for v in obj]
         return obj
+
     return _resolve(cfg)
 
 
 def gather_samples(split_dir):
-    """
-    Gather all (image, label, meta) triplets from the extracted slice directory.
-    Returns list of dicts with paths.
+    """Gather all (image, label, meta) triplets from the extracted slice directory. Returns list of dicts with paths.
     """
     img_dir = os.path.join(split_dir, "images")
     lbl_dir = os.path.join(split_dir, "labels")
@@ -71,12 +69,14 @@ def gather_samples(split_dir):
         if not os.path.exists(lbl_path):
             continue
 
-        samples.append({
-            "stem": stem,
-            "img_path": img_path,
-            "lbl_path": lbl_path,
-            "meta_path": meta_path if os.path.exists(meta_path) else None,
-        })
+        samples.append(
+            {
+                "stem": stem,
+                "img_path": img_path,
+                "lbl_path": lbl_path,
+                "meta_path": meta_path if os.path.exists(meta_path) else None,
+            }
+        )
 
     return samples
 
@@ -84,6 +84,7 @@ def gather_samples(split_dir):
 def estimate_sample_size(samples, n=50):
     """Estimate average sample size from a random subset."""
     import random as _r
+
     subset = _r.sample(samples, min(n, len(samples)))
     total = 0
     for s in subset:
@@ -102,7 +103,7 @@ def write_shards(samples, output_dir, target_mb, split_name):
     samples_per_shard = max(1, int(target_mb * 1024 * 1024 / avg_size))
     n_shards = math.ceil(len(samples) / samples_per_shard)
 
-    print(f"  Avg sample size: {avg_size/1024:.1f} KB")
+    print(f"  Avg sample size: {avg_size / 1024:.1f} KB")
     print(f"  Samples per shard: ~{samples_per_shard}")
     print(f"  Total shards: {n_shards}")
 
@@ -115,9 +116,7 @@ def write_shards(samples, output_dir, target_mb, split_name):
         if sample_count % samples_per_shard == 0:
             if tar is not None:
                 tar.close()
-            shard_path = os.path.join(
-                output_dir, f"{split_name}-{shard_idx:05d}.tar"
-            )
+            shard_path = os.path.join(output_dir, f"{split_name}-{shard_idx:05d}.tar")
             tar = tarfile.open(shard_path, "w")
             shard_idx += 1
             sample_count = 0
@@ -170,9 +169,7 @@ def main():
     manifest_data = {"splits": {}}
 
     for split in ["train", "val"]:
-        split_dir = os.path.join(slices_root, split) if os.path.isdir(
-            os.path.join(slices_root, split)
-        ) else slices_root
+        os.path.join(slices_root, split) if os.path.isdir(os.path.join(slices_root, split)) else slices_root
         # Images are in slices_root/images/{split}/
         img_dir = os.path.join(slices_root, "images", split)
         if not os.path.isdir(img_dir):
@@ -189,14 +186,16 @@ def main():
             if not fname.endswith(".png"):
                 continue
             stem = fname[:-4]
-            samples.append({
-                "stem": stem,
-                "img_path": os.path.join(img_dir, fname),
-                "lbl_path": os.path.join(lbl_dir, f"{stem}.txt"),
-                "meta_path": os.path.join(meta_dir, f"{stem}.json")
+            samples.append(
+                {
+                    "stem": stem,
+                    "img_path": os.path.join(img_dir, fname),
+                    "lbl_path": os.path.join(lbl_dir, f"{stem}.txt"),
+                    "meta_path": os.path.join(meta_dir, f"{stem}.json")
                     if os.path.exists(os.path.join(meta_dir, f"{stem}.json"))
                     else None,
-            })
+                }
+            )
 
         print(f"  Samples: {len(samples)}")
 
@@ -221,15 +220,12 @@ def main():
 
         if args.dry_run:
             avg_sz = estimate_sample_size(samples) if samples else 0
-            n_shards = math.ceil(
-                len(samples) / max(1, int(target_mb * 1024 * 1024 / max(1, avg_sz)))
-            ) if samples else 0
+            n_shards = math.ceil(len(samples) / max(1, int(target_mb * 1024 * 1024 / max(1, avg_sz)))) if samples else 0
             print(f"  [DRY RUN] Would write ~{n_shards} shards to {out_dir}")
             manifest_data["splits"][split] = {
                 "samples": len(samples),
                 "class_distribution": {
-                    (class_map[k][1] if k in class_map else "negative"): v
-                    for k, v in cls_counts.items()
+                    (class_map[k][1] if k in class_map else "negative"): v for k, v in cls_counts.items()
                 },
             }
             continue
@@ -242,8 +238,7 @@ def main():
             "shards": n_shards,
             "shard_dir": out_dir,
             "class_distribution": {
-                (class_map[k][1] if k in class_map else "negative"): v
-                for k, v in cls_counts.items()
+                (class_map[k][1] if k in class_map else "negative"): v for k, v in cls_counts.items()
             },
         }
 
