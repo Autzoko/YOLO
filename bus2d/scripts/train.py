@@ -35,6 +35,7 @@ def load_config(path):
     with open(path) as f:
         cfg = yaml.safe_load(f)
     env = {"data_root": cfg["data_root"], "output_root": cfg["output_root"]}
+
     def _resolve(obj):
         if isinstance(obj, str):
             return resolve_env(obj, env)
@@ -43,6 +44,7 @@ def load_config(path):
         if isinstance(obj, list):
             return [_resolve(v) for v in obj]
         return obj
+
     return _resolve(cfg)
 
 
@@ -59,9 +61,7 @@ def main():
     cfg = load_config(args.config)
     tcfg = cfg["training"]
 
-    dataset_yaml = args.dataset_yaml or os.path.join(
-        os.path.dirname(__file__), "..", "bus2d_dataset.yaml"
-    )
+    dataset_yaml = args.dataset_yaml or os.path.join(os.path.dirname(__file__), "..", "bus2d_dataset.yaml")
 
     from ultralytics import YOLO
 
@@ -78,6 +78,7 @@ def main():
     cls_weights = None
     if os.path.exists(split_info_path):
         import json
+
         with open(split_info_path) as f:
             split_info = json.load(f)
         train_dist = split_info.get("train_class_dist", {})
