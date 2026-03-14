@@ -11,6 +11,7 @@ import io
 import json
 import math
 import os
+import random
 import sys
 
 import cv2
@@ -60,9 +61,32 @@ def load_config(path):
     return _resolve(cfg)
 
 
+# ── Online augmentation ─────────────────────────────────────────────
+
+def augment_hsv(img, h_gain=0.015, s_gain=0.4, v_gain=0.3):
+    """Random HSV augmentation on a BGR uint8 image."""
+    r = np.random.uniform(-1, 1, 3) * [h_gain, s_gain, v_gain] + 1
+    hue, sat, val = cv2.split(cv2.cvtColor(img, cv2.COLOR_BGR2HSV))
+    dtype = img.dtype
+    x = np.arange(0, 256, dtype=r.dtype)
+    lut_hue = ((x * r[0]) % 180).astype(dtype)
+    lut_sat = np.clip(x * r[1], 0, 255).astype(dtype)
+    lut_val = np.clip(x * r[2], 0, 255).astype(dtype)
+    im_hsv = cv2.merge((cv2.LUT(hue, lut_hue), cv2.LUT(sat, lut_sat), cv2.LUT(val, lut_val)))
+    cv2.cvtColor(im_hsv, cv2.COLOR_HSV2BGR, dst=img)
+
+
+def augment_fliplr(img, bboxes):
+    """Random horizontal flip. Mutates img in-place, returns updated bboxes."""
+    img[:] = np.fliplr(img)
+    if len(bboxes) > 0:
+        bboxes[:, 0] = 1.0 - bboxes[:, 0]  # flip cx
+    return bboxes
+
+
 # ── WebDataset helpers ──────────────────────────────────────────────
 
-def decode_sample(sample, imgsz=640):
+def decode_sample(sample, imgsz=640, augment=False):
     """
     Decode a single WebDataset sample into YOLO-compatible format.
 
@@ -74,10 +98,13 @@ def decode_sample(sample, imgsz=640):
     img_array = np.frombuffer(img_bytes, dtype=np.uint8)
     img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)  # BGR, (H, W, 3)
     if img is None:
-        # Return empty sample
         img = np.zeros((imgsz, imgsz, 3), dtype=np.uint8)
 
     ori_h, ori_w = img.shape[:2]
+
+    # Online augmentation: HSV jitter (before resize, on original image)
+    if augment:
+        augment_hsv(img)
 
     # Resize to imgsz (letterbox-style: scale to fit, pad)
     scale = min(imgsz / ori_h, imgsz / ori_w)
@@ -94,9 +121,6 @@ def decode_sample(sample, imgsz=640):
         cv2.BORDER_CONSTANT, value=(114, 114, 114),
     )
 
-    # Convert to CHW uint8 tensor
-    img_tensor = torch.from_numpy(img_padded.transpose(2, 0, 1)).contiguous()  # (3, H, W)
-
     # Parse YOLO labels
     label_text = sample.get("txt", b"").decode("utf-8").strip()
     bboxes = []
@@ -109,7 +133,7 @@ def decode_sample(sample, imgsz=640):
                 cx, cy, w, h = map(float, parts[1:5])
 
                 # Adjust normalized bbox for letterbox padding
-                # Original normalized coords → absolute in original image
+                # Original normalized coords -> absolute in original image
                 abs_cx = cx * ori_w
                 abs_cy = cy * ori_h
                 abs_w = w * ori_w
@@ -135,11 +159,19 @@ def decode_sample(sample, imgsz=640):
                 classes.append(cls)
 
     n = len(classes)
-    cls_tensor = torch.tensor(classes, dtype=torch.float32).unsqueeze(1) if n > 0 else torch.zeros((0, 1), dtype=torch.float32)
-    bbox_tensor = torch.tensor(bboxes, dtype=torch.float32) if n > 0 else torch.zeros((0, 4), dtype=torch.float32)
-    batch_idx = torch.zeros(n, dtype=torch.long)
+    bbox_np = np.array(bboxes, dtype=np.float32).reshape(n, 4) if n > 0 else np.zeros((0, 4), dtype=np.float32)
 
-    # im_file for logging
+    # Online augmentation: horizontal flip (after letterbox, on padded image)
+    if augment and random.random() < 0.5:
+        bbox_np = augment_fliplr(img_padded, bbox_np)
+
+    # Convert to CHW uint8 tensor
+    img_tensor = torch.from_numpy(img_padded.transpose(2, 0, 1).copy()).contiguous()
+
+    cls_tensor = torch.tensor(classes, dtype=torch.float32).unsqueeze(1) if n > 0 else torch.zeros((0, 1), dtype=torch.float32)
+    bbox_tensor = torch.from_numpy(bbox_np) if n > 0 else torch.zeros((0, 4), dtype=torch.float32)
+    batch_idx = torch.zeros(n, dtype=torch.float32)
+
     im_file = sample.get("__key__", "unknown")
 
     # ratio_pad: (scale, (left_pad, top_pad)) — used by validator to map preds back
@@ -187,11 +219,21 @@ def yolo_collate_fn(batch):
     return new_batch
 
 
-def make_wds_dataloader(shard_dir, batch_size, imgsz, workers, shuffle=True, rank=0, world_size=1):
+def is_negative_sample(sample):
+    """Check if a sample has no labels (negative/background)."""
+    txt = sample.get("txt", b"")
+    if isinstance(txt, bytes):
+        txt = txt.decode("utf-8", errors="ignore")
+    return txt.strip() == ""
+
+
+def make_wds_dataloader(shard_dir, batch_size, imgsz, workers, shuffle=True,
+                        rank=0, world_size=1, neg_keep_ratio=0.3):
     """
     Create a WebDataset-backed dataloader for YOLO training.
 
     shard_dir: path containing .tar files
+    neg_keep_ratio: fraction of negative (no-label) samples to keep (0.0-1.0)
     Returns: DataLoader yielding YOLO-compatible batch dicts.
     """
     import glob
@@ -199,22 +241,40 @@ def make_wds_dataloader(shard_dir, batch_size, imgsz, workers, shuffle=True, ran
     if not shard_pattern:
         raise FileNotFoundError(f"No .tar files found in {shard_dir}")
 
-    # Count total samples from the tar files (approximate)
-    # WebDataset needs this for epoch length
+    # Count total samples from the tar files
     total_samples = 0
+    total_positive = 0
     import tarfile
     for tp in shard_pattern:
         with tarfile.open(tp, "r") as t:
-            pngs = [m for m in t.getnames() if m.endswith(".png")]
+            names = t.getnames()
+            pngs = [m for m in names if m.endswith(".png")]
             total_samples += len(pngs)
+            # Count positive samples (non-empty txt files)
+            for m in t.getmembers():
+                if m.name.endswith(".txt") and m.size > 0:
+                    total_positive += 1
 
-    print(f"  WebDataset: {len(shard_pattern)} shards, ~{total_samples} samples")
+    total_negative = total_samples - total_positive
+    kept_negative = int(total_negative * neg_keep_ratio)
+    effective_samples = total_positive + kept_negative
+    print(f"  WebDataset: {len(shard_pattern)} shards, {total_samples} total samples")
+    print(f"    Positive: {total_positive}, Negative: {total_negative}")
+    print(f"    Keeping {neg_keep_ratio*100:.0f}% negatives → ~{effective_samples} effective samples")
+
+    augment = shuffle  # augment only during training
+
+    def filter_negatives(sample):
+        """Randomly drop negative samples to reduce imbalance."""
+        if is_negative_sample(sample):
+            return random.random() < neg_keep_ratio
+        return True
 
     dataset = (
         wds.WebDataset(shard_pattern, shardshuffle=shuffle, nodesplitter=wds.split_by_node)
-        .shuffle(1000 if shuffle else 0)
-        .to_tuple("__key__", "png", "txt")
-        .map(lambda x: decode_sample({"__key__": x[0], "png": x[1], "txt": x[2]}, imgsz=imgsz))
+        .shuffle(2000 if shuffle else 0)
+        .select(filter_negatives)
+        .map(lambda sample: decode_sample(sample, imgsz=imgsz, augment=augment))
     )
 
     loader = DataLoader(
@@ -227,8 +287,8 @@ def make_wds_dataloader(shard_dir, batch_size, imgsz, workers, shuffle=True, ran
     )
 
     # Attach length for YOLO progress bar
-    loader.dataset_length = total_samples
-    return loader, total_samples
+    loader.dataset_length = effective_samples
+    return loader, effective_samples
 
 
 # ── Custom Trainer ──────────────────────────────────────────────────
@@ -245,10 +305,8 @@ class WDSDetectionTrainer(DetectionTrainer):
         Override to skip file-system validation.
         Return a minimal data dict that satisfies YOLO's expectations.
         """
-        # Read the dataset YAML for class names only
         with open(self.args.data) as f:
             data = yaml.safe_load(f)
-        # Ensure required keys exist
         data.setdefault("nc", len(data.get("names", {})))
         data.setdefault("channels", 3)
         data.setdefault("train", "train")
@@ -280,6 +338,9 @@ class WDSDetectionTrainer(DetectionTrainer):
         if mode != "train":
             workers = min(workers, 2)
 
+        # Keep fewer negatives during training, all during validation
+        neg_ratio = 0.3 if mode == "train" else 1.0
+
         loader, n_samples = make_wds_dataloader(
             shard_dir=shard_dir,
             batch_size=batch_size,
@@ -288,6 +349,7 @@ class WDSDetectionTrainer(DetectionTrainer):
             shuffle=shuffle,
             rank=rank,
             world_size=getattr(self, "world_size", 1),
+            neg_keep_ratio=neg_ratio,
         )
 
         # YOLO needs __len__ on the dataloader for progress bars
@@ -369,14 +431,14 @@ def main():
         save=True,
         val=True,
         resume=args.resume or False,
-        fliplr=0.5,
+        fliplr=0.0,        # Handled by our online augmentation
         flipud=0.0,
-        mosaic=0.0,         # Disable mosaic — not compatible with streaming
+        mosaic=0.0,         # Not compatible with streaming
         close_mosaic=0,
-        copy_paste=0.0,     # Disable — not compatible with streaming
-        hsv_h=0.015,
-        hsv_s=0.4,
-        hsv_v=0.3,
+        copy_paste=0.0,     # Not compatible with streaming
+        hsv_h=0.0,          # Handled by our online augmentation
+        hsv_s=0.0,
+        hsv_v=0.0,
         mode="train",
         task="detect",
     )
