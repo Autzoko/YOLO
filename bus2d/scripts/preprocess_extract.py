@@ -138,12 +138,13 @@ def yolo_label_line(class_id, cx, cy, w, h, img_w, img_h):
 # ── augmentation ────────────────────────────────────────────────────
 
 def augment_slice(img, aug_cfg, rng):
-    """Apply augmentation to a single 2D uint8 image.  Returns augmented copy."""
-    out = img.copy()
+    """Apply augmentation to a single 2D uint8 image.  Returns augmented copy.
 
-    # Horizontal flip
-    if rng.random() < aug_cfg["horizontal_flip_p"]:
-        out = np.fliplr(out).copy()
+    NOTE: Horizontal flip is NOT applied here because bounding box labels
+    are computed BEFORE this function is called and would become misaligned.
+    Flipping is handled during training with proper bbox adjustment.
+    """
+    out = img.copy()
 
     # Brightness/contrast jitter
     if rng.random() < aug_cfg["brightness_contrast_p"]:

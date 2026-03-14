@@ -175,7 +175,7 @@ def decode_sample(sample, imgsz=640, augment=False):
     im_file = sample.get("__key__", "unknown")
 
     # ratio_pad: (scale, (left_pad, top_pad)) — used by validator to map preds back
-    ratio_pad = (scale, (left, top))
+    ratio_pad = ((scale, scale), (left, top))
 
     return {
         "img": img_tensor,
